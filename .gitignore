@@ -62,8 +62,4 @@ temp/
 .aws/config
 
 # Project specific (keep these private until done testing)
-.github/workflows/Terraform.yml
-docs/
 PROJECT_DELIVERABLES.md
-test_README.md
-Terraform.yml
