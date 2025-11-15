@@ -57,10 +57,13 @@ pids
 tmp/
 temp/
 
-# AWS CLI credentials (keep these secure!)
+# AWS CLI credentials 
 .aws/credentials
 .aws/config
 
-# Project specific (keep these private for now)
+# Project specific (keep these private until done testing)
+.github/workflows/terraform.yml
 docs/
 PROJECT_DELIVERABLES.md
+test_README.md
+Terraform.yml
