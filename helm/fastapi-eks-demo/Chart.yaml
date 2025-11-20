@@ -1,0 +1,13 @@
+# Helm Chart metadata for FastAPI app
+# Like the package.json or setup.py of my Helm package
+
+apiVersion: v2
+name: fastapi-eks-demo
+description: FastAPI application for EKS demonstration
+type: application
+version: 0.1.0 # Helm chart version
+appVersion: "1.0.0" # Version of the application being deployed
+home: https://github.com/dtolbertcooke/Terraform-Kubernetes-Cluster
+maintainers:
+  - name: Doug Tolbert-Cooke
+    email: dtolbertcooke@gmail.com

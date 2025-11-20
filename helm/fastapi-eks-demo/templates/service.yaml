@@ -1,0 +1,16 @@
+# How the app is exposed
+# Creates a Kubernetes Service of type defined in values.yml
+# This file creates an AWS load balancer in front of my pods
+# Maps the service port to the container port
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: fastapi-eks-demo
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - port: {{ .Values.service.port }}
+      targetPort: {{ .Values.containerPort }}
+  selector:
+    app: fastapi-eks-demo

@@ -1,0 +1,27 @@
+# Kubernetes Deployment for FastAPI app (Pod blueprint)
+# This template creates:
+# - A Kubernetes Deployment
+# - With the number of pods defined by replicaCount
+# - Using the image defined in values.yml
+# - Exposing the port defined in values.yml
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fastapi-eks-demo
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app: fastapi-eks-demo
+  template:
+    metadata:
+      labels:
+        app: fastapi-eks-demo
+    spec:
+      containers:
+        - name: fastapi-eks-demo
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - containerPort: {{ .Values.containerPort }}
