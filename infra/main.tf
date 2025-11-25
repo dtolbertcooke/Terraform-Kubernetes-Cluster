@@ -17,7 +17,6 @@ module "eks" {
   cluster_endpoint_public_access  = true # Enable public access to the EKS cluster endpoint for development purposes
   cluster_endpoint_private_access = true 
 
-
   eks_managed_node_groups = {
     default = {
       desired_size   = 2

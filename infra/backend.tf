@@ -7,7 +7,7 @@
 #     # configuration will be loaded from dev.hcl
 #     # when initializing terraform with:
 #     # terraform init -backend-config=dev.hcl
-#     # in the terraform-eks workflow
+#     # in eks.yml workflow
 #   }
 # }
 terraform {
