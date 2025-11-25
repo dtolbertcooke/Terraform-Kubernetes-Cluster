@@ -33,3 +33,15 @@ jobs:
       - name: Login to ECR
         uses: aws-actions/amazon-ecr-login@v2
         id: login-ecr
+
+      - name: Build & Push Docker Image
+        id: build
+        run: |
+          IMAGE_TAG=${GITHUB_SHA::7}
+          ECR_URL="${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPO }}"
+
+          echo "image_url=$ECR_URL" >> $GITHUB_OUTPUT
+          echo "image_tag=$IMAGE_TAG" >> $GITHUB_OUTPUT
+
+          docker build -t "$ECR_URL:$IMAGE_TAG" ./app
+          docker push "$ECR_URL:$IMAGE_TAG"
