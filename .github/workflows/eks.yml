@@ -13,35 +13,72 @@ permissions:
 
 env:
   AWS_REGION: us-east-1
-  ECR_REPO: eks-demo-api
-  EKS_CLUSTER_NAME: eks-demo-cluster
   CHART_PATH: ./helm/fastapi-eks-demo
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
 
+    defaults:
+      run:
+        working-directory: infra # Keep runs scoped to terraform code
+
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::${{ vars.AWS_ACCOUNT_ID }}:role/github-oidc-role-dev
           aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: arn:aws:iam::${{ vars.AWS_ACCOUNT_ID }}:role/github-oidc-role-dev
+
+      # Install Terraform
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.12.2" # Pin to specific version of terraform
+
+      # Initialize Terraform locally on github runner
+      - name: Terraform Init
+        run: terraform init
+
+      # Apply terraform changes to build infrastructure (ECR + EKS)
+      - name: Terraform Apply
+        run: terraform apply -auto-approve
+
+      # Export Terraform outputs to JSON file
+      - name: Export Outputs
+        run: terraform output -json > tf_outputs.json
+
+      # Install jq for parsing JSON outputs
+      - name: Install jq
+        run: sudo apt-get install -y jq
+
+      # Set ECR_REPO and CLUSTER_NAME from terraform outputs
+      - name: Set Environment Variables
+        run: |
+          export ECR_REPO_NAME=$(jq -r '.ecr_repo_name.value' tf_outputs.json)
+          export EKS_CLUSTER_NAME=$(jq -r '.cluster_name.value' tf_outputs.json)
 
       - name: Login to ECR
         uses: aws-actions/amazon-ecr-login@v2
         id: login-ecr
 
-      - name: Build & Push Docker Image
+      - name: Build & Push Docker Image to ECR
         id: build
         run: |
-          IMAGE_TAG=${GITHUB_SHA::7}
-          ECR_URL="${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPO }}"
-
-          echo "image_url=$ECR_URL" >> $GITHUB_OUTPUT
-          echo "image_tag=$IMAGE_TAG" >> $GITHUB_OUTPUT
+          IMAGE_TAG=${GITHUB_SHA::7} # use first 7 chars of commit SHA as image tag
+          ECR_URL="${{ steps.login-ecr.outputs.registry }}/$ECR_REPO_NAME"
 
           docker build -t "$ECR_URL:$IMAGE_TAG" ./app
           docker push "$ECR_URL:$IMAGE_TAG"
+
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v4
+
+      - name: Configure kubeconfig
+        run: |
+          aws eks update-kubeconfig \
+            --name "$EKS_CLUSTER_NAME" \
+            --region "${{ env.AWS_REGION }}"
