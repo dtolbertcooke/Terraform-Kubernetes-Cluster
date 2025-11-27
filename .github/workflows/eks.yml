@@ -61,7 +61,7 @@ jobs:
           export ECR_REPO_NAME=$(jq -r '.ecr_repo_name.value' tf_outputs.json)
           export EKS_CLUSTER_NAME=$(jq -r '.cluster_name.value' tf_outputs.json)
 
-      - name: Login to ECR
+      - name: Login to ECR 
         uses: aws-actions/amazon-ecr-login@v2
         id: login-ecr
 
