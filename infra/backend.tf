@@ -16,7 +16,7 @@ terraform {
     # when initializing terraform with:
     # terraform init -backend-config=dev.hcl
     # in the terraform-eks workflow
-    bucket         = "state-bucket-global-7fe90e1cac"
+    bucket         = "state-bucket-global-a790f21e87"
     key            = "eks-project/terraform.tfstate"
     region         = "us-east-1"
     dynamodb_table = "state-table-global-infra"
