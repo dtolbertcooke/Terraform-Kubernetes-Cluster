@@ -10,13 +10,15 @@
 #     # in eks.yml workflow
 #   }
 # }
+
+
 terraform {
   backend "s3" {
     # configuration will be loaded from dev.hcl
     # when initializing terraform with:
     # terraform init -backend-config=dev.hcl
     # in the terraform-eks workflow
-    bucket         = "state-bucket-global-a790f21e87"
+    bucket         = "state-bucket-global-43319381e1"
     key            = "eks-project/terraform.tfstate"
     region         = "us-east-1"
     dynamodb_table = "state-table-global-infra"
