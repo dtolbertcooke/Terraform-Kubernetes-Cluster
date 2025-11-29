@@ -72,6 +72,54 @@ jobs:
       - name: Terraform Init 
         run: terraform init -backend-config=eks.hcl
 
+      # Export Terraform outputs to get cluster name
+      - name: Export Terraform Outputs
+        run: terraform output -json > tf_outputs.json
+
+      # Install jq for parsing JSON
+      - name: Install jq
+        run: sudo apt-get install -y jq
+
+      # Get cluster name from outputs
+      - name: Get Cluster Name
+        run: |
+          echo "EKS_CLUSTER_NAME=$(jq -r '.cluster_name.value' tf_outputs.json)" >> $GITHUB_ENV
+
+      # Setup kubectl to interact with cluster
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v4
+
+      # Configure kubeconfig for EKS cluster
+      - name: Configure kubeconfig
+        run: |
+          aws eks update-kubeconfig \
+            --name "${{ env.EKS_CLUSTER_NAME }}" \
+            --region "${{ github.event.inputs.region }}"
+
+      # Setup Helm
+      - name: Setup Helm
+        uses: azure/setup-helm@v4
+
+      # Delete Helm deployments (removes LoadBalancers)
+      - name: Delete Helm Deployments
+        run: |
+          helm list --all-namespaces -o json | jq -r '.[] | "\(.name) -n \(.namespace)"' | while read release; do
+            echo "Uninstalling $release"
+            helm uninstall $release || true
+          done
+        continue-on-error: true
+
+      # Wait for LoadBalancers to be deleted
+      - name: Wait for AWS Resources Cleanup
+        run: |
+          echo "Waiting 120 seconds for AWS to clean up LoadBalancers..."
+          sleep 120
+
+      # Verify no services remain
+      - name: Verify Services Deleted
+        run: kubectl get svc --all-namespaces
+        continue-on-error: true
+
       # destroy config
       - name: Terraform Destroy
         run: terraform destroy -auto-approve -lock=false 
