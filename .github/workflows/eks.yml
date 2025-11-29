@@ -14,7 +14,7 @@ permissions:
 
 env:
   AWS_REGION: us-east-1
-  CHART_PATH: ./helm/fastapi-eks-demo
+  CHART_PATH: ../helm/fastapi-eks-demo
 
 jobs:
   deploy:
