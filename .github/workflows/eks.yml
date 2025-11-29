@@ -69,8 +69,11 @@ jobs:
       - name: Build & Push Docker Image to ECR
         id: build
         run: |
-          IMAGE_TAG=${GITHUB_SHA::7} # use first 7 chars of commit SHA as image tag
           ECR_URL="${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPO_NAME }}"
+          IMAGE_TAG=${GITHUB_SHA::7} # use first 7 chars of commit SHA as image tag
+
+          echo "image_url=$ECR_URL" >> $GITHUB_OUTPUT
+          echo "image_tag=$IMAGE_TAG" >> $GITHUB_OUTPUT
 
           docker build -t "$ECR_URL:$IMAGE_TAG" ../app
           docker push "$ECR_URL:$IMAGE_TAG"
@@ -81,5 +84,14 @@ jobs:
       - name: Configure kubeconfig
         run: |
           aws eks update-kubeconfig \
-            --name "$EKS_CLUSTER_NAME" \
+            --name "${{ env.EKS_CLUSTER_NAME }}" \
             --region "${{ env.AWS_REGION }}"
+
+      - name: Setup helm
+        uses: azure/setup-helm@v4
+
+      - name: Deploy with Helm
+        run: |
+          helm upgrade --install sample-api ${{ env.CHART_PATH }} \
+            --set image.repository="${{ steps.build.outputs.image_url }}" \
+            --set image.tag="${{ steps.build.outputs.image_tag }}"
