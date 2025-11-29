@@ -16,6 +16,9 @@ module "eks" {
 
   cluster_endpoint_public_access  = true # Enable public access to the EKS cluster endpoint for development purposes
   cluster_endpoint_private_access = true 
+  
+  # Enable IAM roles for service accounts (IRSA)
+  enable_irsa = true
 
   eks_managed_node_groups = {
     default = {
@@ -23,6 +26,17 @@ module "eks" {
       max_size       = 3
       min_size       = 1
       instance_types = ["t3.small"]
+      
+      # Ensure proper IAM permissions
+      iam_role_attach_cni_policy = true
+      
+      # Use default launch template configuration
+      use_custom_launch_template = false
+      
+      # Ensure node IAM role has necessary permissions
+      iam_role_additional_policies = {
+        AmazonSSMManagedInstanceCore = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+      }
     }
   }
 }
