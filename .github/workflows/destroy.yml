@@ -82,15 +82,25 @@ jobs:
 
       # Get cluster name from outputs
       - name: Get Cluster Name
+        id: cluster-check
         run: |
-          echo "EKS_CLUSTER_NAME=$(jq -r '.cluster_name.value' tf_outputs.json)" >> $GITHUB_ENV
+          CLUSTER_NAME=$(jq -r '.cluster_name.value // empty' tf_outputs.json)
+          if [ -z "$CLUSTER_NAME" ] || [ "$CLUSTER_NAME" = "null" ]; then
+            echo "No EKS cluster found in state, skipping Kubernetes cleanup"
+            echo "cluster_exists=false" >> $GITHUB_OUTPUT
+          else
+            echo "EKS_CLUSTER_NAME=$CLUSTER_NAME" >> $GITHUB_ENV
+            echo "cluster_exists=true" >> $GITHUB_OUTPUT
+          fi
 
       # Setup kubectl to interact with cluster
       - name: Setup kubectl
+        if: steps.cluster-check.outputs.cluster_exists == 'true'
         uses: azure/setup-kubectl@v4
 
       # Configure kubeconfig for EKS cluster
       - name: Configure kubeconfig
+        if: steps.cluster-check.outputs.cluster_exists == 'true'
         run: |
           aws eks update-kubeconfig \
             --name "${{ env.EKS_CLUSTER_NAME }}" \
@@ -98,10 +108,12 @@ jobs:
 
       # Setup Helm
       - name: Setup Helm
+        if: steps.cluster-check.outputs.cluster_exists == 'true'
         uses: azure/setup-helm@v4
 
       # Delete Helm deployments (removes LoadBalancers)
       - name: Delete Helm Deployments
+        if: steps.cluster-check.outputs.cluster_exists == 'true'
         run: |
           helm list --all-namespaces -o json | jq -r '.[] | "\(.name) -n \(.namespace)"' | while read release; do
             echo "Uninstalling $release"
@@ -111,12 +123,14 @@ jobs:
 
       # Wait for LoadBalancers to be deleted
       - name: Wait for AWS Resources Cleanup
+        if: steps.cluster-check.outputs.cluster_exists == 'true'
         run: |
           echo "Waiting 120 seconds for AWS to clean up LoadBalancers..."
           sleep 120
 
       # Verify no services remain
       - name: Verify Services Deleted
+        if: steps.cluster-check.outputs.cluster_exists == 'true'
         run: kubectl get svc --all-namespaces
         continue-on-error: true
 
