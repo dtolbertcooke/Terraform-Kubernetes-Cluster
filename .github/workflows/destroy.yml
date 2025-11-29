@@ -74,4 +74,4 @@ jobs:
 
       # destroy config
       - name: Terraform Destroy
-        run: terraform destroy -auto-approve
+        run: terraform destroy -auto-approve -lock=false 
