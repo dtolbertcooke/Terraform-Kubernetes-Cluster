@@ -89,8 +89,17 @@ jobs:
             echo "No EKS cluster found in state, skipping Kubernetes cleanup"
             echo "cluster_exists=false" >> $GITHUB_OUTPUT
           else
-            echo "EKS_CLUSTER_NAME=$CLUSTER_NAME" >> $GITHUB_ENV
-            echo "cluster_exists=true" >> $GITHUB_OUTPUT
+            # Check cluster status
+            CLUSTER_STATUS=$(aws eks describe-cluster --name "$CLUSTER_NAME" --region "${{ github.event.inputs.region }}" --query 'cluster.status' --output text 2>/dev/null || echo "NOT_FOUND")
+            
+            if [ "$CLUSTER_STATUS" = "ACTIVE" ]; then
+              echo "EKS_CLUSTER_NAME=$CLUSTER_NAME" >> $GITHUB_ENV
+              echo "cluster_exists=true" >> $GITHUB_OUTPUT
+              echo "Cluster is ACTIVE, will clean up Kubernetes resources"
+            else
+              echo "Cluster status is $CLUSTER_STATUS, skipping Kubernetes cleanup"
+              echo "cluster_exists=false" >> $GITHUB_OUTPUT
+            fi
           fi
 
       # Setup kubectl to interact with cluster
