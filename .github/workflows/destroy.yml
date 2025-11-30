@@ -39,6 +39,14 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ github.event.inputs.region }}
 
+      - name: Fetch Backend Config from SSM
+        run: |
+          STATE_BUCKET=$(aws ssm get-parameter --name "/tf/global-backend/state-bucket" --query "Parameter.Value" --output text --region ${{ github.event.inputs.region }})
+          STATE_TABLE=$(aws ssm get-parameter --name "/tf/global-backend/state-table" --query "Parameter.Value" --output text --region ${{ github.event.inputs.region }})
+
+          echo "STATE_BUCKET=$STATE_BUCKET" >> $GITHUB_ENV
+          echo "STATE_TABLE=$STATE_TABLE" >> $GITHUB_ENV
+
       # install terraform
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
@@ -47,9 +55,9 @@ jobs:
 
       - name: Clean stale Terraform lock
         run: |
-          LOCK_KEY="state-bucket-global-43319381e1/eks-project/terraform.tfstate"
+          LOCK_KEY="$STATE_BUCKET/eks-project/terraform.tfstate"
           aws dynamodb delete-item \
-            --table-name "state-table-global-infra" \
+            --table-name "$STATE_TABLE" \
             --key "{\"LockID\": {\"S\": \"$LOCK_KEY\"}}" || true
 
       # init terraform locally on github runner
