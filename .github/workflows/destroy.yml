@@ -38,29 +38,7 @@ jobs:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ github.event.inputs.region }}
-
-      # Fetch backend config from SSM
-      # - Retrieves global S3/DynamoDB state backend
-      # - Creates backend config file for terraform init
-      - name: Fetch Backend Config from SSM
-        run: |
-          STATE_BUCKET=$(aws ssm get-parameter --name "/tf/global-backend/state-bucket" --query "Parameter.Value" --output text --region ${{ github.event.inputs.region }})
-          STATE_TABLE=$(aws ssm get-parameter --name "/tf/global-backend/state-table" --query "Parameter.Value" --output text --region ${{ github.event.inputs.region }})
-          REGION=$(aws ssm get-parameter --name "/tf/global-backend/region" --query "Parameter.Value" --output text --region ${{ github.event.inputs.region }})
-
-          echo "STATE_BUCKET=$STATE_BUCKET" >> $GITHUB_ENV
-          echo "STATE_TABLE=$STATE_TABLE" >> $GITHUB_ENV
-          echo "REGION=$REGION" >> $GITHUB_ENV
-
-          echo "TF_VAR_state_bucket_name=$STATE_BUCKET" >> $GITHUB_ENV
-
-          cat > eks.hcl <<EOF
-          bucket         = "$STATE_BUCKET"
-          key            = "eks-project/terraform.tfstate"
-          region         = "$REGION"
-          dynamodb_table = "$STATE_TABLE"
-          encrypt        = true
-          EOF
+          role-to-assume: arn:aws:iam::${{ vars.AWS_ACCOUNT_ID }}:role/github-oidc-role-dev
 
       # install terraform
       - name: Setup Terraform
@@ -70,7 +48,7 @@ jobs:
 
       # init terraform locally on github runner
       - name: Terraform Init 
-        run: terraform init -backend-config=eks.hcl
+        run: terraform init
 
       # Export Terraform outputs to get cluster name
       - name: Export Terraform Outputs
@@ -130,11 +108,25 @@ jobs:
           done
         continue-on-error: true
 
-      # Wait for LoadBalancers to be deleted
+      # Wait for LoadBalancers and ENIs to be deleted
       - name: Wait for AWS Resources Cleanup
         if: steps.cluster-check.outputs.cluster_exists == 'true'
         run: |
-          echo "Waiting 120 seconds for AWS to clean up LoadBalancers..."
+          echo "Waiting for AWS to clean up LoadBalancers and network interfaces..."
+          
+          # Poll for LoadBalancer services to be fully deleted
+          for i in {1..20}; do
+            LB_COUNT=$(kubectl get svc --all-namespaces -o json | jq '[.items[] | select(.spec.type=="LoadBalancer")] | length')
+            if [ "$LB_COUNT" -eq 0 ]; then
+              echo "All LoadBalancer services deleted"
+              break
+            fi
+            echo "Attempt $i/20: $LB_COUNT LoadBalancer(s) still present, waiting 30s..."
+            sleep 30
+          done
+          
+          # Additional wait for AWS to release ENIs
+          echo "Waiting additional 120 seconds for ENI cleanup..."
           sleep 120
 
       # Verify no services remain
