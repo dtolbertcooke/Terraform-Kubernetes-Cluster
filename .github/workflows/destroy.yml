@@ -35,8 +35,7 @@ jobs:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          role-to-assume: arn:aws:iam::${{ vars.AWS_ACCOUNT_ID }}:role/github-oidc-role-dev 
           aws-region: ${{ github.event.inputs.region }}
 
       - name: Fetch Backend Config from SSM
@@ -123,15 +122,30 @@ jobs:
         if: steps.cluster-check.outputs.cluster_exists == 'true'
         run: |
           echo "Waiting for LoadBalancer ENIs to be removed..."
+
+          # If cluster API is already gone, skip safely
+          if ! kubectl get nodes >/dev/null 2>&1; then
+            echo "Cluster API is unreachable. Assuming LoadBalancers are already deleted."
+            exit 0
+          fi
+
+          # Normal wait loop
           for i in {1..20}; do
-            LB_COUNT=$(kubectl get svc --all-namespaces -o json | jq '[.items[] | select(.spec.type=="LoadBalancer")] | length')
+            # If kubectl fails at any time, assume cleanup done
+            if ! LB_COUNT=$(kubectl get svc --all-namespaces -o json 2>/dev/null | jq '[.items[] | select(.spec.type=="LoadBalancer")] | length'); then
+              echo "kubectl no longer has access to the cluster. Assuming LoadBalancers are gone."
+              break
+            fi
+
             if [ "$LB_COUNT" -eq 0 ]; then
               echo "All LoadBalancer services deleted."
               break
             fi
+
             echo "Attempt $i/20: $LB_COUNT still remain... waiting 30s..."
             sleep 30
           done
+
 
       # destroy config
       - name: Terraform Destroy
