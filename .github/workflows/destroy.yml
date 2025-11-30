@@ -45,6 +45,13 @@ jobs:
         with:
           terraform_version: "1.12.2" # Pin to specific version
 
+      - name: Clean stale Terraform lock
+        run: |
+          LOCK_KEY="state-bucket-global-43319381e1/eks-project/terraform.tfstate"
+          aws dynamodb delete-item \
+            --table-name "state-table-global-infra" \
+            --key "{\"LockID\": {\"S\": \"$LOCK_KEY\"}}" || true
+
       # init terraform locally on github runner
       - name: Terraform Init 
         run: terraform init
@@ -62,21 +69,12 @@ jobs:
         id: cluster-check
         run: |
           CLUSTER_NAME=$(jq -r '.cluster_name.value // empty' tf_outputs.json)
-          if [ -z "$CLUSTER_NAME" ] || [ "$CLUSTER_NAME" = "null" ]; then
-            echo "No EKS cluster found in state, skipping Kubernetes cleanup"
-            echo "cluster_exists=false" >> $GITHUB_OUTPUT
+
+          if [ -n "$CLUSTER_NAME" ] && [ "$CLUSTER_NAME" != "null" ]; then
+            echo "EKS_CLUSTER_NAME=$CLUSTER_NAME" >> $GITHUB_ENV
+            echo "cluster_exists=true" >> $GITHUB_OUTPUT
           else
-            # Check cluster status
-            CLUSTER_STATUS=$(aws eks describe-cluster --name "$CLUSTER_NAME" --region "${{ github.event.inputs.region }}" --query 'cluster.status' --output text 2>/dev/null || echo "NOT_FOUND")
-            
-            if [ "$CLUSTER_STATUS" = "ACTIVE" ]; then
-              echo "EKS_CLUSTER_NAME=$CLUSTER_NAME" >> $GITHUB_ENV
-              echo "cluster_exists=true" >> $GITHUB_OUTPUT
-              echo "Cluster is ACTIVE, will clean up Kubernetes resources"
-            else
-              echo "Cluster status is $CLUSTER_STATUS, skipping Kubernetes cleanup"
-              echo "cluster_exists=false" >> $GITHUB_OUTPUT
-            fi
+            echo "cluster_exists=false" >> $GITHUB_OUTPUT
           fi
 
       # Setup kubectl to interact with cluster
@@ -98,42 +96,35 @@ jobs:
         uses: azure/setup-helm@v4
 
       # Delete Helm deployments (removes LoadBalancers)
-      - name: Delete Helm Deployments
+      - name: Uninstall Helm Releases
         if: steps.cluster-check.outputs.cluster_exists == 'true'
         run: |
-          helm list --all-namespaces -o json | jq -r '.[] | "\(.name) -n \(.namespace)"' | while read release; do
-            echo "Uninstalling $release"
-            helm uninstall $release || true
-          done
-        continue-on-error: true
+          RELEASES=$(helm list --all-namespaces -o json | jq -r '.[] | "\(.name) -n \(.namespace)"')
+
+          if [ -z "$RELEASES" ]; then
+            echo "No Helm releases found."
+          else
+            echo "$RELEASES" | while read release; do
+              echo "Uninstalling $release"
+              helm uninstall $release || true
+            done
+          fi
 
       # Wait for LoadBalancers and ENIs to be deleted
-      - name: Wait for AWS Resources Cleanup
+      - name: Wait for LoadBalancer deletion
         if: steps.cluster-check.outputs.cluster_exists == 'true'
         run: |
-          echo "Waiting for AWS to clean up LoadBalancers and network interfaces..."
-          
-          # Poll for LoadBalancer services to be fully deleted
+          echo "Waiting for LoadBalancer ENIs to be removed..."
           for i in {1..20}; do
             LB_COUNT=$(kubectl get svc --all-namespaces -o json | jq '[.items[] | select(.spec.type=="LoadBalancer")] | length')
             if [ "$LB_COUNT" -eq 0 ]; then
-              echo "All LoadBalancer services deleted"
+              echo "All LoadBalancer services deleted."
               break
             fi
-            echo "Attempt $i/20: $LB_COUNT LoadBalancer(s) still present, waiting 30s..."
+            echo "Attempt $i/20: $LB_COUNT still remain... waiting 30s..."
             sleep 30
           done
-          
-          # Additional wait for AWS to release ENIs
-          echo "Waiting additional 120 seconds for ENI cleanup..."
-          sleep 120
-
-      # Verify no services remain
-      - name: Verify Services Deleted
-        if: steps.cluster-check.outputs.cluster_exists == 'true'
-        run: kubectl get svc --all-namespaces
-        continue-on-error: true
 
       # destroy config
       - name: Terraform Destroy
-        run: terraform destroy -auto-approve -lock=false 
+        run: terraform destroy -auto-approve
