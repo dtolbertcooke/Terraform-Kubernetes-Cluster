@@ -1,6 +1,6 @@
 resource "aws_ecr_repository" "api" {
   name = "${var.project_name}-repo"
-  
+
   force_delete = true
 }
 
@@ -17,10 +17,26 @@ module "eks" {
   enable_cluster_creator_admin_permissions = true
 
   cluster_endpoint_public_access  = true # Enable public access to the EKS cluster endpoint for development purposes
-  cluster_endpoint_private_access = true 
-  
+  cluster_endpoint_private_access = true
+
   # Enable IAM roles for service accounts (IRSA)
   enable_irsa = true
+
+  # Grant additional IAM users/roles access to the cluster
+  access_entries = {
+    doug_admin = {
+      principal_arn     = "arn:aws:iam::${var.aws_account_id}:user/${var.admin_iam_user}"
+      kubernetes_groups = []
+      policy_associations = {
+        admin = {
+          policy_arn = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
+          access_scope = {
+            type = "cluster"
+          }
+        }
+      }
+    }
+  }
 
   eks_managed_node_groups = {
     default = {
@@ -28,13 +44,13 @@ module "eks" {
       max_size       = 3
       min_size       = 1
       instance_types = ["t3.small"]
-      
+
       # Ensure proper IAM permissions
       iam_role_attach_cni_policy = true
-      
+
       # Use default launch template configuration
       use_custom_launch_template = false
-      
+
       # Ensure node IAM role has necessary permissions
       iam_role_additional_policies = {
         AmazonSSMManagedInstanceCore = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
