@@ -46,6 +46,14 @@ jobs:
           echo "STATE_BUCKET=$STATE_BUCKET" >> $GITHUB_ENV
           echo "STATE_TABLE=$STATE_TABLE" >> $GITHUB_ENV
 
+          cat > eks.hcl <<EOF
+          bucket         = "$STATE_BUCKET"
+          key            = "eks-project/terraform.tfstate"
+          region         = "$REGION"
+          dynamodb_table = "$STATE_TABLE"
+          encrypt        = true
+          EOF
+
       # install terraform
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
@@ -61,7 +69,7 @@ jobs:
 
       # init terraform locally on github runner
       - name: Terraform Init 
-        run: terraform init
+        run: terraform init -backend-config=eks.hcl
 
       # Export Terraform outputs to get cluster name
       - name: Export Terraform Outputs
