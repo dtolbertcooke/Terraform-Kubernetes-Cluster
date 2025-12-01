@@ -5,7 +5,6 @@
 replicaCount: 2 # create 2 pods
 
 image: # tells Kubernetes which Docker image to pull
-  # repository: "975049995039.dkr.ecr.us-east-1.amazonaws.com/eks-demo-api-repo"
   repository: "" # Will be overridden by CI/CD pipeline
   tag: "" # Will be overridden by CI/CD pipeline
   pullPolicy: IfNotPresent # Pull the image if not already present on node
@@ -17,3 +16,4 @@ service: # creates a public AWS Load Balancer (ELB/NLB) in front of my pods
 # My FastAPI app is exposed at port 8000 IN DOCKER
 # But in Kubernetes, I can STANDARDIZE it to any port I want (8080)
 containerPort: 8080
+name: fastapi-eks-demo

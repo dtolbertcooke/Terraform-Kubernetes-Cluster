@@ -8,19 +8,19 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: fastapi-eks-demo
+  name: {{ .Values.name }}
 spec:
   replicas: {{ .Values.replicaCount }}
   selector:
     matchLabels:
-      app: fastapi-eks-demo
+      app: {{ .Values.name }}
   template:
     metadata:
       labels:
-        app: fastapi-eks-demo
+        app: {{ .Values.name }}
     spec:
       containers:
-        - name: fastapi-eks-demo
+        - name: {{ .Values.name }}
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           ports:

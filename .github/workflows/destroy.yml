@@ -35,24 +35,16 @@ jobs:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          role-to-assume: arn:aws:iam::${{ vars.AWS_ACCOUNT_ID }}:role/github-oidc-role-dev 
           aws-region: ${{ github.event.inputs.region }}
 
-      # Fetch backend config from SSM
-      # - Retrieves global S3/DynamoDB state backend
-      # - Creates backend config file for terraform init
       - name: Fetch Backend Config from SSM
         run: |
           STATE_BUCKET=$(aws ssm get-parameter --name "/tf/global-backend/state-bucket" --query "Parameter.Value" --output text --region ${{ github.event.inputs.region }})
           STATE_TABLE=$(aws ssm get-parameter --name "/tf/global-backend/state-table" --query "Parameter.Value" --output text --region ${{ github.event.inputs.region }})
-          REGION=$(aws ssm get-parameter --name "/tf/global-backend/region" --query "Parameter.Value" --output text --region ${{ github.event.inputs.region }})
 
           echo "STATE_BUCKET=$STATE_BUCKET" >> $GITHUB_ENV
           echo "STATE_TABLE=$STATE_TABLE" >> $GITHUB_ENV
-          echo "REGION=$REGION" >> $GITHUB_ENV
-
-          echo "TF_VAR_state_bucket_name=$STATE_BUCKET" >> $GITHUB_ENV
 
           cat > eks.hcl <<EOF
           bucket         = "$STATE_BUCKET"
@@ -68,10 +60,105 @@ jobs:
         with:
           terraform_version: "1.12.2" # Pin to specific version
 
+      - name: Clean stale Terraform lock
+        run: |
+          LOCK_KEY="$STATE_BUCKET/eks-project/terraform.tfstate"
+          aws dynamodb delete-item \
+            --table-name "$STATE_TABLE" \
+            --key "{\"LockID\": {\"S\": \"$LOCK_KEY\"}}" || true
+
       # init terraform locally on github runner
       - name: Terraform Init 
         run: terraform init -backend-config=eks.hcl
 
+      # Export Terraform outputs to get cluster name
+      - name: Export Terraform Outputs
+        run: terraform output -json > tf_outputs.json
+
+      # Install jq for parsing JSON
+      - name: Install jq
+        run: sudo apt-get install -y jq
+
+      # Get cluster name from outputs
+      - name: Get Cluster Name
+        id: cluster-check
+        run: |
+          CLUSTER_NAME=$(jq -r '.cluster_name.value // empty' tf_outputs.json)
+
+          if [ -n "$CLUSTER_NAME" ] && [ "$CLUSTER_NAME" != "null" ]; then
+            echo "EKS_CLUSTER_NAME=$CLUSTER_NAME" >> $GITHUB_ENV
+            echo "cluster_exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "cluster_exists=false" >> $GITHUB_OUTPUT
+          fi
+
+      # Setup kubectl to interact with cluster
+      - name: Setup kubectl
+        if: steps.cluster-check.outputs.cluster_exists == 'true'
+        uses: azure/setup-kubectl@v4
+
+      # Configure kubeconfig for EKS cluster
+      - name: Configure kubeconfig
+        if: steps.cluster-check.outputs.cluster_exists == 'true'
+        run: |
+          aws eks update-kubeconfig \
+            --name "${{ env.EKS_CLUSTER_NAME }}" \
+            --region "${{ github.event.inputs.region }}"
+
+      # Setup Helm
+      - name: Setup Helm
+        if: steps.cluster-check.outputs.cluster_exists == 'true'
+        uses: azure/setup-helm@v4
+
+      # Delete Helm deployments (removes LoadBalancers)
+      - name: Uninstall Helm Releases
+        if: steps.cluster-check.outputs.cluster_exists == 'true'
+        run: |
+          RELEASES=$(helm list --all-namespaces -o json | jq -r '.[] | "\(.name) -n \(.namespace)"')
+
+          if [ -z "$RELEASES" ]; then
+            echo "No Helm releases found."
+          else
+            echo "$RELEASES" | while read release; do
+              echo "Uninstalling $release"
+              helm uninstall $release || true
+            done
+          fi
+
+      # Wait for LoadBalancers and ENIs to be deleted
+      - name: Wait for LoadBalancer deletion
+        if: steps.cluster-check.outputs.cluster_exists == 'true'
+        run: |
+          echo "Waiting for LoadBalancer ENIs to be removed..."
+
+          # If cluster API is already gone, skip safely
+          if ! kubectl get nodes >/dev/null 2>&1; then
+            echo "Cluster API is unreachable. Assuming LoadBalancers are already deleted."
+            exit 0
+          fi
+
+          # Normal wait loop
+          for i in {1..20}; do
+            # If kubectl fails at any time, assume cleanup done
+            if ! LB_COUNT=$(kubectl get svc --all-namespaces -o json 2>/dev/null | jq '[.items[] | select(.spec.type=="LoadBalancer")] | length'); then
+              echo "kubectl no longer has access to the cluster. Assuming LoadBalancers are gone."
+              break
+            fi
+
+            if [ "$LB_COUNT" -eq 0 ]; then
+              echo "All LoadBalancer services deleted."
+              break
+            fi
+
+            echo "Attempt $i/20: $LB_COUNT still remain... waiting 30s..."
+            sleep 30
+          done
+
       # destroy config
       - name: Terraform Destroy
-        run: terraform destroy -auto-approve
+        run: |
+          terraform destroy -auto-approve \
+          -var="aws_account_id=${{ vars.AWS_ACCOUNT_ID }}" \
+          -var="admin_iam_user=Doug" \
+          -var="cluster_name=test_cluster_name" \
+          -var="project_name=test_project_name"

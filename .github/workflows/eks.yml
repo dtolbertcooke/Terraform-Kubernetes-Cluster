@@ -1,4 +1,5 @@
 name: Deploy to EKS
+description: Deploys infrastructure to EKS cluster.
 
 on:
   workflow_dispatch:
@@ -13,7 +14,7 @@ permissions:
 
 env:
   AWS_REGION: us-east-1
-  CHART_PATH: ./helm/fastapi-eks-demo
+  CHART_PATH: ../helm/fastapi-eks-demo
 
 jobs:
   deploy:
@@ -33,6 +34,20 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
           role-to-assume: arn:aws:iam::${{ vars.AWS_ACCOUNT_ID }}:role/github-oidc-role-dev
 
+      - name: Fetch Backend Config
+        run: |
+          STATE_BUCKET=$(aws ssm get-parameter --name "/tf/global-backend/state-bucket" --query "Parameter.Value" --output text)
+          STATE_TABLE=$(aws ssm get-parameter --name "/tf/global-backend/state-table" --query "Parameter.Value" --output text)
+          REGION=$(aws ssm get-parameter --name "/tf/global-backend/region" --query "Parameter.Value" --output text)
+
+          cat > eks.hcl <<EOF
+          bucket         = "$STATE_BUCKET"
+          key            = "eks-project/terraform.tfstate"
+          region         = "$REGION"
+          dynamodb_table = "$STATE_TABLE"
+          encrypt        = true
+          EOF
+
       # Install Terraform
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
@@ -41,11 +56,23 @@ jobs:
 
       # Initialize Terraform locally on github runner
       - name: Terraform Init
-        run: terraform init
+        run: |
+          terraform init \
+          -var="aws_account_id=${{ vars.AWS_ACCOUNT_ID }}" \
+          -var="admin_iam_user=Doug" \
+          -var="cluster_name=test_cluster_name" \
+          -var="project_name=test_project_name" \
+          -backend-config=eks.hcl
 
       # Apply terraform changes to build infrastructure (ECR + EKS)
       - name: Terraform Apply
-        run: terraform apply -auto-approve
+        run: |
+          terraform apply \
+          -var="aws_account_id=${{ vars.AWS_ACCOUNT_ID }}" \
+          -var="admin_iam_user=Doug" \
+          -var="cluster_name=test_cluster_name" \
+          -var="project_name=test_project_name" \
+          -auto-approve
 
       # Export Terraform outputs to JSON file
       - name: Export Outputs
@@ -58,8 +85,8 @@ jobs:
       # Set ECR_REPO and CLUSTER_NAME from terraform outputs
       - name: Set Environment Variables
         run: |
-          export ECR_REPO_NAME=$(jq -r '.ecr_repo_name.value' tf_outputs.json)
-          export EKS_CLUSTER_NAME=$(jq -r '.cluster_name.value' tf_outputs.json)
+          echo "ECR_REPO_NAME=$(jq -r '.ecr_repo_name.value' tf_outputs.json)" >> $GITHUB_ENV
+          echo "EKS_CLUSTER_NAME=$(jq -r '.cluster_name.value' tf_outputs.json)" >> $GITHUB_ENV
 
       - name: Login to ECR 
         uses: aws-actions/amazon-ecr-login@v2
@@ -68,10 +95,13 @@ jobs:
       - name: Build & Push Docker Image to ECR
         id: build
         run: |
+          ECR_URL="${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPO_NAME }}"
           IMAGE_TAG=${GITHUB_SHA::7} # use first 7 chars of commit SHA as image tag
-          ECR_URL="${{ steps.login-ecr.outputs.registry }}/$ECR_REPO_NAME"
 
-          docker build -t "$ECR_URL:$IMAGE_TAG" ./app
+          echo "image_url=$ECR_URL" >> $GITHUB_OUTPUT
+          echo "image_tag=$IMAGE_TAG" >> $GITHUB_OUTPUT
+
+          docker build -t "$ECR_URL:$IMAGE_TAG" ../app
           docker push "$ECR_URL:$IMAGE_TAG"
 
       - name: Setup kubectl
@@ -80,5 +110,14 @@ jobs:
       - name: Configure kubeconfig
         run: |
           aws eks update-kubeconfig \
-            --name "$EKS_CLUSTER_NAME" \
+            --name "${{ env.EKS_CLUSTER_NAME }}" \
             --region "${{ env.AWS_REGION }}"
+
+      - name: Setup helm
+        uses: azure/setup-helm@v4
+
+      - name: Deploy with Helm
+        run: |
+          helm upgrade --install demo-api ${{ env.CHART_PATH }} \
+            --set image.repository="${{ steps.build.outputs.image_url }}" \
+            --set image.tag="${{ steps.build.outputs.image_tag }}"
