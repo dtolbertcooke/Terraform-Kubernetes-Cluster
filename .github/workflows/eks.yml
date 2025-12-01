@@ -34,6 +34,20 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
           role-to-assume: arn:aws:iam::${{ vars.AWS_ACCOUNT_ID }}:role/github-oidc-role-dev
 
+      - name: Fetch Backend Config
+        run: |
+          STATE_BUCKET=$(aws ssm get-parameter --name "/tf/global-backend/state-bucket" --query "Parameter.Value" --output text)
+          STATE_TABLE=$(aws ssm get-parameter --name "/tf/global-backend/state-table" --query "Parameter.Value" --output text)
+          REGION=$(aws ssm get-parameter --name "/tf/global-backend/region" --query "Parameter.Value" --output text)
+
+          cat > eks.hcl <<EOF
+          bucket         = "$STATE_BUCKET"
+          key            = "eks-project/terraform.tfstate"
+          region         = "$REGION"
+          dynamodb_table = "$STATE_TABLE"
+          encrypt        = true
+          EOF
+
       # Install Terraform
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
@@ -42,7 +56,7 @@ jobs:
 
       # Initialize Terraform locally on github runner
       - name: Terraform Init
-        run: terraform init
+        run: terraform init -backend-config=eks.hcl
 
       # Apply terraform changes to build infrastructure (ECR + EKS)
       - name: Terraform Apply
@@ -92,6 +106,7 @@ jobs:
 
       - name: Deploy with Helm
         run: |
-          helm upgrade --install sample-api ${{ env.CHART_PATH }} \
+          helm upgrade --install demo-api ${{ env.CHART_PATH }} \
             --set image.repository="${{ steps.build.outputs.image_url }}" \
             --set image.tag="${{ steps.build.outputs.image_tag }}"
+            
