@@ -154,7 +154,11 @@ jobs:
             sleep 30
           done
 
-
       # destroy config
       - name: Terraform Destroy
-        run: terraform destroy -auto-approve
+        run: |
+          terraform destroy -auto-approve \
+          -var="aws_account_id=${{ vars.AWS_ACCOUNT_ID }}" \
+          -var="admin_iam_user=Doug" \
+          -var="cluster_name=test_cluster_name" \
+          -var="project_name=test_project_name"
