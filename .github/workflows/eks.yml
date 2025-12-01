@@ -64,7 +64,11 @@ jobs:
 
       # Apply terraform changes to build infrastructure (ECR + EKS)
       - name: Terraform Apply
-        run: terraform apply -auto-approve
+        run: |
+          terraform apply \
+          -var="cluster_name=test_cluster_name" \
+          -var="project_name=test_project_name" \
+          -auto-approve
 
       # Export Terraform outputs to JSON file
       - name: Export Outputs
