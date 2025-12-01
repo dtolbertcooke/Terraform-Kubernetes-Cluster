@@ -42,9 +42,11 @@ jobs:
         run: |
           STATE_BUCKET=$(aws ssm get-parameter --name "/tf/global-backend/state-bucket" --query "Parameter.Value" --output text --region ${{ github.event.inputs.region }})
           STATE_TABLE=$(aws ssm get-parameter --name "/tf/global-backend/state-table" --query "Parameter.Value" --output text --region ${{ github.event.inputs.region }})
+          REGION=$(aws ssm get-parameter --name "/tf/global-backend/region" --query "Parameter.Value" --output text --region ${{ github.event.inputs.region }})
 
           echo "STATE_BUCKET=$STATE_BUCKET" >> $GITHUB_ENV
           echo "STATE_TABLE=$STATE_TABLE" >> $GITHUB_ENV
+          echo "REGION=$REGION" >> $GITHUB_ENV
 
           cat > eks.hcl <<EOF
           bucket         = "$STATE_BUCKET"
@@ -62,10 +64,11 @@ jobs:
 
       - name: Clean stale Terraform lock
         run: |
-          LOCK_KEY="$STATE_BUCKET/eks-project/terraform.tfstate"
+          LOCK_KEY="${STATE_BUCKET}/eks-project/terraform.tfstate"
           aws dynamodb delete-item \
             --table-name "$STATE_TABLE" \
-            --key "{\"LockID\": {\"S\": \"$LOCK_KEY\"}}" || true
+            --key "{\"LockID\": {\"S\": \"$LOCK_KEY\"}}" \
+            --region ${{ github.event.inputs.region }} || true
 
       # init terraform locally on github runner
       - name: Terraform Init 
