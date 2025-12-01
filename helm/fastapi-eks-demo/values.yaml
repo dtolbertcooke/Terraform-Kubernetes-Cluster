@@ -16,3 +16,4 @@ service: # creates a public AWS Load Balancer (ELB/NLB) in front of my pods
 # My FastAPI app is exposed at port 8000 IN DOCKER
 # But in Kubernetes, I can STANDARDIZE it to any port I want (8080)
 containerPort: 8080
+name: fastapi-eks-demo

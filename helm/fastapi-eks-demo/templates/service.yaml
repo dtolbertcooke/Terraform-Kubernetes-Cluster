@@ -6,11 +6,11 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: fastapi-eks-demo
+  name: {{ .Values.name }}
 spec:
   type: {{ .Values.service.type }}
   ports:
     - port: {{ .Values.service.port }}
       targetPort: {{ .Values.containerPort }}
   selector:
-    app: fastapi-eks-demo
+    app: {{ .Values.name }}
