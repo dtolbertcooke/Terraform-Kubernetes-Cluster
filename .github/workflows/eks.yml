@@ -56,7 +56,10 @@ jobs:
 
       # Initialize Terraform locally on github runner
       - name: Terraform Init
-        run: terraform init -backend-config=eks.hcl
+        run: terraform init \
+        -var="cluster_name=test_cluster_name" \
+        -var="project_name=test_project_name" \
+        -backend-config=eks.hcl
 
       # Apply terraform changes to build infrastructure (ECR + EKS)
       - name: Terraform Apply
@@ -109,4 +112,3 @@ jobs:
           helm upgrade --install demo-api ${{ env.CHART_PATH }} \
             --set image.repository="${{ steps.build.outputs.image_url }}" \
             --set image.tag="${{ steps.build.outputs.image_tag }}"
-            

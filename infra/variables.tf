@@ -10,6 +10,12 @@ variable "cluster_name" {
   default     = "eks-demo-cluster"
 }
 
+variable "project_name" {
+  description = "Project name"
+  type        = string
+  default     = "eks-demo-api"
+}
+
 # variable "vpc_id" {
 #   description = "VPC ID where EKS cluster will be deployed"
 #   type        = string
@@ -20,8 +26,3 @@ variable "cluster_name" {
 #   type        = list(string)
 # }
 
-variable "project_name" {
-  description = "Project name"
-  type        = string
-  default     = "eks-demo-api"
-}
